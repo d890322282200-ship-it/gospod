@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    env_file:
+      - .env
+    environment:
+      - N8N_HOST=${N8N_HOST:-127.0.0.1}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${N8N_EDITOR_BASE_URL:-http://127.0.0.1:5678}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-http://127.0.0.1:5678}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-true}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-change_me}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-UTC}
+      - EXECUTIONS_DATA_PRUNE=${EXECUTIONS_DATA_PRUNE:-true}
+      - EXECUTIONS_DATA_MAX_AGE=${EXECUTIONS_DATA_MAX_AGE:-168}
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=${EXECUTIONS_DATA_PRUNE_MAX_COUNT:-1000}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_OWNER=${GITHUB_OWNER}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - REPO_URL=${REPO_URL}
+      - REPO_BASE_DIR=${REPO_BASE_DIR:-/srv/ai/repos}
+      - DEFAULT_BASE_BRANCH=${DEFAULT_BASE_BRANCH:-main}
+      - BRANCH_PREFIX=${BRANCH_PREFIX:-ai/issue}
+      - MODEL=${MODEL:-qwen2.5-coder:1.5b}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - TEST_CMD=${TEST_CMD:-pytest -q}
+      - COMMIT_AUTHOR_NAME=${COMMIT_AUTHOR_NAME:-aiops-bot}
+      - COMMIT_AUTHOR_EMAIL=${COMMIT_AUTHOR_EMAIL:-aiops-bot@example.com}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - /srv/ai/repos:/srv/ai/repos
+      - /opt/aider-venv:/opt/aider-venv:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: >
+      /bin/sh -lc "
+      apk add --no-cache git bash curl jq python3 py3-pip py3-virtualenv &&
+      pip install --no-cache-dir aider-chat &&
+      n8n
+      "
+
+volumes:
+  n8n_data:
+    driver: local
