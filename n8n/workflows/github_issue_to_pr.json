@@ -1,0 +1,282 @@
+{
+  "name": "github_issue_to_pr",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual_trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "number": [
+            {
+              "name": "issue_number",
+              "value": "={{$env.ISSUE_NUMBER || 1}}"
+            }
+          ],
+          "string": [
+            {
+              "name": "owner",
+              "value": "={{$env.GITHUB_OWNER}}"
+            },
+            {
+              "name": "repo",
+              "value": "={{$env.GITHUB_REPO}}"
+            },
+            {
+              "name": "repo_url",
+              "value": "={{$env.REPO_URL}}"
+            },
+            {
+              "name": "base_branch",
+              "value": "={{$env.DEFAULT_BASE_BRANCH || 'main'}}"
+            },
+            {
+              "name": "branch_prefix",
+              "value": "={{$env.BRANCH_PREFIX || 'ai/issue'}}"
+            },
+            {
+              "name": "repo_base_dir",
+              "value": "={{$env.REPO_BASE_DIR || '/srv/ai/repos'}}"
+            },
+            {
+              "name": "model",
+              "value": "={{$env.MODEL || 'qwen2.5-coder:1.5b'}}"
+            },
+            {
+              "name": "ollama_host",
+              "value": "={{$env.OLLAMA_HOST || 'http://host.docker.internal:11434'}}"
+            },
+            {
+              "name": "test_cmd",
+              "value": "={{$env.TEST_CMD || 'pytest -q'}}"
+            },
+            {
+              "name": "commit_author_name",
+              "value": "={{$env.COMMIT_AUTHOR_NAME || 'aiops-bot'}}"
+            },
+            {
+              "name": "commit_author_email",
+              "value": "={{$env.COMMIT_AUTHOR_EMAIL || 'aiops-bot@example.com'}}"
+            }
+          ]
+        }
+      },
+      "id": "set_env",
+      "name": "Set Env",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        430,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{$json.owner}}/{{$json.repo}}/issues/{{$json.issue_number}}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.GITHUB_TOKEN}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get_issue",
+      "name": "Get Issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=set -euo pipefail\n\nISSUE_NUMBER={{$json.number || $json.issue_number}}\nOWNER={{$json.owner}}\nREPO={{$json.repo}}\nREPO_URL={{$json.repo_url}}\nBASE_BRANCH={{$json.base_branch}}\nBRANCH_PREFIX={{$json.branch_prefix}}\nREPO_BASE_DIR={{$json.repo_base_dir}}\nMODEL={{$json.model}}\nOLLAMA_HOST={{$json.ollama_host}}\nTEST_CMD=\"{{$json.test_cmd}}\"\nAUTHOR_NAME=\"{{$json.commit_author_name}}\"\nAUTHOR_EMAIL=\"{{$json.commit_author_email}}\"\nISSUE_TITLE=$(printf %q \"{{$node[\"Get Issue\"].json[\"title\"]}}\")\nISSUE_BODY=$(printf %q \"{{$node[\"Get Issue\"].json[\"body\"] || ''}}\")\n\nmkdir -p \"${REPO_BASE_DIR}\"\nWORKDIR=\"${REPO_BASE_DIR}/${OWNER}-${REPO}\"\nBRANCH=\"${BRANCH_PREFIX}/issue-${ISSUE_NUMBER}-$(date +%Y%m%d%H%M%S)\"\n\nif [ ! -d \"${WORKDIR}/.git\" ]; then\n  git clone \"${REPO_URL}\" \"${WORKDIR}\"\nfi\n\ncd \"${WORKDIR}\"\ngit fetch --all --prune\ngit checkout \"${BASE_BRANCH}\"\ngit pull --ff-only origin \"${BASE_BRANCH}\"\ngit checkout -b \"${BRANCH}\"\n\nPROMPT=$(cat <<EOP\nYou are an autonomous coding assistant.\nImplement the GitHub issue below with minimal, correct changes.\nRun tests and keep style consistent.\n\nIssue title: {{$node[\"Get Issue\"].json[\"title\"]}}\nIssue body:\n{{$node[\"Get Issue\"].json[\"body\"] || ''}}\nEOP\n)\n\nexport MODEL OLLAMA_HOST\naider --model \"ollama/${MODEL}\" --ollama-api-base \"${OLLAMA_HOST}\" --yes --message \"${PROMPT}\" || true\n\nif [ -n \"${TEST_CMD}\" ]; then\n  bash -lc \"${TEST_CMD}\" || true\nfi\n\nif [ -n \"$(git status --porcelain)\" ]; then\n  git config user.name \"${AUTHOR_NAME}\"\n  git config user.email \"${AUTHOR_EMAIL}\"\n  git add -A\n  git commit -m \"ai: resolve issue #${ISSUE_NUMBER}\"\n  git push -u origin \"${BRANCH}\"\n  echo \"branch=${BRANCH}\"\nelse\n  echo \"branch=\"\nfi"
+      },
+      "id": "apply_changes",
+      "name": "Apply Changes",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "branch",
+              "value": "={{($json.stdout || '').split('branch=').pop().trim()}}"
+            }
+          ]
+        }
+      },
+      "id": "extract_branch",
+      "name": "Extract Branch",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.branch}}",
+              "operation": "notEmpty"
+            }
+          ]
+        }
+      },
+      "id": "if_branch",
+      "name": "If Branch Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{$env.GITHUB_OWNER}}/{{$env.GITHUB_REPO}}/pulls",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.GITHUB_TOKEN}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"AI: issue #{{$env.ISSUE_NUMBER}}\",\n  \"head\": \"{{$json.branch}}\",\n  \"base\": \"{{$env.DEFAULT_BASE_BRANCH || 'main'}}\",\n  \"body\": \"Automated change generated by n8n + aider + ollama for issue #{{$env.ISSUE_NUMBER}}.\"\n}",
+        "options": {}
+      },
+      "id": "create_pr",
+      "name": "Create PR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1570,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Env",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Env": {
+      "main": [
+        [
+          {
+            "node": "Get Issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Issue": {
+      "main": [
+        [
+          {
+            "node": "Apply Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Changes": {
+      "main": [
+        [
+          {
+            "node": "Extract Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Branch": {
+      "main": [
+        [
+          {
+            "node": "If Branch Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Branch Exists": {
+      "main": [
+        [
+          {
+            "node": "Create PR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "github_issue_to_pr"
+}
